@@ -9,56 +9,50 @@ ROOT = Path('.')
 
 result = {}
 
-def collect_file_info(base_dir, rel_base):
+def skip_second_level(rel_path):
     """
-    遍历 base_dir 下所有文件，返回：
-    - 路径归纳字典 { parent_path: { '文件数': n, '文件列表': [...] } }
-    - 文件总数
-    - 文件总大小
+    输入: Path('二级/三级/四级/文件')
+    输出: Path('三级/四级')
+    如果只有二级目录，则返回''
     """
-    path_summary = {}
-    total_count = 0
-    total_size = 0
-    for dirpath, dirnames, filenames in os.walk(base_dir):
-        rel_dir = Path(dirpath).relative_to(rel_base)
-        # parent_path: '' 表示一级目录本身，其他为更深层相对路径
-        parent_path = str(rel_dir) if str(rel_dir) != '.' else ''
-        for fname in filenames:
-            total_count += 1
-            fpath = Path(dirpath) / fname
-            try:
-                total_size += fpath.stat().st_size
-            except Exception:
-                pass
-            if parent_path not in path_summary:
-                path_summary[parent_path] = {'文件数': 0, '文件列表': []}
-            path_summary[parent_path]['文件数'] += 1
-            path_summary[parent_path]['文件列表'].append(fname)
-    return path_summary, total_count, round(total_size / (1024**3), 3)
+    parts = rel_path.parts
+    if len(parts) < 2:
+        return ''
+    # 跳过第二级目录
+    return str(Path(*parts[2:-1])) if len(parts) > 2 else ''
 
 # 统计根目录
 root_files = [f for f in ROOT.iterdir() if f.is_file()]
 root_size = sum(f.stat().st_size for f in root_files)
-root_path_summary = {}
-if root_files:
-    root_path_summary[''] = {
-        '文件数': len(root_files),
-        '文件列表': [f.name for f in root_files]
-    }
+root_paths = [''] if root_files else []
 result['./'] = {
     '总文件数': len(root_files),
     '总大小(GB)': round(root_size / (1024**3), 3),
-    '路径归纳': root_path_summary
+    '归纳相对路径': root_paths
 }
 
 # 统计一级目录
 for item in ROOT.iterdir():
     if item.is_dir() and item.name != 'report':
-        path_summary, total_count, total_size = collect_file_info(item, item)
+        all_paths = set()
+        file_count = 0
+        total_size = 0
+        for dirpath, dirnames, filenames in os.walk(item):
+            for fname in filenames:
+                file_count += 1
+                fpath = Path(dirpath) / fname
+                try:
+                    total_size += fpath.stat().st_size
+                except Exception:
+                    pass
+                rel_path = fpath.relative_to(item)
+                # 剔除2级目录
+                path_wo_2nd = skip_second_level(rel_path)
+                all_paths.add(path_wo_2nd)
         result[f'./{item.name}/'] = {
-            '总文件数': total_count,
-            '总大小(GB)': total_size,
-            '路径归纳': path_summary
+            '总文件数': file_count,
+            '总大小(GB)': round(total_size / (1024**3), 3),
+            '归纳相对路径': sorted([p for p in all_paths if p != ''] or [''])
         }
 
 # 输出为json
